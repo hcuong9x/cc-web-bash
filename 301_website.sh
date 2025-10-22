@@ -43,7 +43,7 @@ backup_domain() {
     local domain_path="$1"
     local domain="$2"
     local backup_dir="$domain_path/wp-content/ai1wm-backups"
-    
+
     echo "🧩 Preparing backup for $domain ..."
 
     cd "$domain_path" || return 1
@@ -105,7 +105,10 @@ restore_domain() {
         echo "❌ No backup found for restore."
         exit 1
     fi
-
+    echo "Using backup file: ";
+    echo $(basename "$latest_backup");
+    return 0
+    
     wp_cli "$domain_path" ai1wm restore "$(basename "$latest_backup")"
     echo "✅ Restore completed for $domain"
 
