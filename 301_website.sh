@@ -108,7 +108,9 @@ restore_domain() {
     fi
     echo "Using backup file: ";
     echo $(basename "$latest_backup");
-    return 0
+    backup_dir="$domain_path/wp-content/ai1wm-backups"
+    latest_backup="$(ls -1t "$backup_dir"/*.wpress | head -n1)"
+    
     wp_cli "$domain_path" ai1wm restore "$(basename "$latest_backup")"
     echo "✅ Restore completed for $domain"
 
