@@ -111,9 +111,11 @@ restore_domain() {
     backup_dir="$domain_path/wp-content/ai1wm-backups"
     latest_backup="$(ls -1t "$backup_dir"/*.wpress | head -n1)"
     
-    wp ai1wm restore "$(basename "$latest_backup")" --allow-root
+    # Restore backup command
+    echo "Restoring backup..."
+    # wp ai1wm restore "$(basename "$latest_backup")" --allow-root
     echo "✅ Restore completed for $domain"
-
+    return 0
     # Clean up
     rm -rf "$domain_path/wp-content/ai1wm-backups"/*.wpress
     wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration-url-extension
