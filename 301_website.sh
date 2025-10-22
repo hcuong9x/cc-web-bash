@@ -114,16 +114,16 @@ restore_domain() {
     
     # Restore backup command
     echo "Restoring backup..."
-    wp ai1wm restore "$(basename "$latest_backup")" --allow-root
+    # wp ai1wm restore "$(basename "$latest_backup")" --allow-root
     # wp_cli "$domain_path" ai1wm restore "$(basename "$latest_backup_dir")"
     echo "✅ Restore completed for $domain"
     # return 0
     # Clean up
-    rm -rf "$domain_path/wp-content/ai1wm-backups"/*.wpress
-    wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration-url-extension
-    wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
-    wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration
-    wp_cli "$domain_path" plugin delete all-in-one-wp-migration
+    # rm -rf "$domain_path/wp-content/ai1wm-backups"/*.wpress
+    # wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration-url-extension
+    # wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
+    # wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration
+    # wp_cli "$domain_path" plugin delete all-in-one-wp-migration
 }
 
 setup_owner() {
