@@ -42,7 +42,8 @@ wp_cli() {
 backup_domain() {
     local domain_path="$1"
     local domain="$2"
-
+    local backup_dir="$domain_path/wp-content/ai1wm-backups"
+    
     echo "🧩 Preparing backup for $domain ..."
 
     cd "$domain_path" || return 1
@@ -57,8 +58,6 @@ backup_domain() {
     wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
     wp_cli "$domain_path" plugin install "$extension_zip" --activate
 
-    setup_owner "$domain_path"
-
     # mkdir -p "$backup_dir"
     # Remove old backups
     rm -rf "$backup_dir"/*.wpress
@@ -71,6 +70,8 @@ backup_domain() {
         echo "❌ Backup failed for $domain"
         exit 1
     fi
+
+    setup_owner "$domain_path"
 
     echo "✅ Backup created: $latest_backup"
     echo "Backup Size: $(du -sh "$backup_dir"/*.wpress)"
