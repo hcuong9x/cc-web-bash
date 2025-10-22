@@ -111,7 +111,7 @@ restore_domain() {
     backup_dir="$domain_path/wp-content/ai1wm-backups"
     latest_backup="$(ls -1t "$backup_dir"/*.wpress | head -n1)"
     
-    wp_cli "$domain_path" ai1wm restore "$(basename "$latest_backup")"
+    wp ai1wm restore "$(basename "$latest_backup")" --allow-root
     echo "✅ Restore completed for $domain"
 
     # Clean up
