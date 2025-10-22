@@ -117,13 +117,13 @@ restore_domain() {
     # wp ai1wm restore "$(basename "$latest_backup")" --allow-root
     # wp_cli "$domain_path" ai1wm restore "$(basename "$latest_backup_dir")"
     echo "✅ Restore completed for $domain"
-    # return 0
+    return 0
     # Clean up
-    # rm -rf "$domain_path/wp-content/ai1wm-backups"/*.wpress
-    # wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration-url-extension
-    # wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
-    # wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration
-    # wp_cli "$domain_path" plugin delete all-in-one-wp-migration
+    rm -rf "$domain_path/wp-content/ai1wm-backups"/*.wpress
+    wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration-url-extension
+    wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
+    wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration
+    wp_cli "$domain_path" plugin delete all-in-one-wp-migration
 }
 
 setup_owner() {
@@ -162,7 +162,7 @@ config_redirect() {
 
     wp_cli "$domain_path" option update simple_website_redirect_url "https://$new_domain"
     wp_cli "$domain_path" option update simple_website_redirect_type 301
-    wp_cli "$domain_path" option update simple_website_redirect_status 1
+    wp_cli "$domain_path" option update simple_website_redirect_status 0
 
     echo "✅ Redirect configured"
 }
