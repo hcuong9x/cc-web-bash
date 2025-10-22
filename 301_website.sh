@@ -42,6 +42,9 @@ wp_cli() {
 backup_domain() {
     local domain_path="$1"
     local domain="$2"
+    local backup_dir="$domain_path/wp-content/ai1wm-backups"
+    local plugin_aio_dir="$domain_path/wp-content/plugins/all-in-one-wp-migration"
+    local plugin_aio_url_dir="$domain_path/wp-content/plugins/all-in-one-wp-migration-url-extension"
 
     echo "🧩 Preparing backup for $domain ..."
 
@@ -51,14 +54,22 @@ backup_domain() {
     if ! wp_cli "$domain_path" plugin is-active all-in-one-wp-migration; then
         echo "Installing and activating all-in-one-wp-migration..."
         wp_cli "$domain_path" plugin install all-in-one-wp-migration --activate
+        
+        sudo chown -R www-data:www-data "$plugin_aio_dir"
+        sudo chmod -R 755 "$plugin_aio_dir"
     fi
 
     # Install / activate extension
     wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
     wp_cli "$domain_path" plugin install "$extension_zip" --activate
 
-    backup_dir="$domain_path/wp-content/ai1wm-backups"
-    mkdir -p "$backup_dir"
+    sudo chown -R www-data:www-data "$plugin_aio_url_dir"
+    sudo chmod -R 755 "$plugin_aio_url_dir"
+    
+    sudo chown -R www-data:www-data "$backup_dir"
+    sudo chmod -R 755 "$backup_dir"
+    # mkdir -p "$backup_dir"
+    # Remove old backups
     rm -rf "$backup_dir"/*.wpress
 
     echo "📦 Creating backup..."
@@ -71,11 +82,16 @@ backup_domain() {
     fi
 
     echo "✅ Backup created: $latest_backup"
+    echo "Backup Size: $(du -sh "$backup_dir"/*.wpress)"
 }
 
 restore_domain() {
     local domain_path="$1"
     local domain="$2"
+
+    local backup_dir="$domain_path/wp-content/ai1wm-backups"
+    local plugin_aio_dir="$domain_path/wp-content/plugins/all-in-one-wp-migration"
+    local plugin_aio_url_dir="$domain_path/wp-content/plugins/all-in-one-wp-migration-url-extension"
 
     echo "🔁 Restoring backup to $domain ..."
 
@@ -84,11 +100,19 @@ restore_domain() {
     # Install plugin
     if ! wp_cli "$domain_path" plugin is-active all-in-one-wp-migration; then
         wp_cli "$domain_path" plugin install all-in-one-wp-migration --activate
+
+        sudo chown -R www-data:www-data "$plugin_aio_dir"
+        sudo chmod -R 755 "$plugin_aio_dir"
     fi
 
     wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
     wp_cli "$domain_path" plugin install "$extension_zip" --activate
 
+    sudo chown -R www-data:www-data "$plugin_aio_url_dir"
+    sudo chmod -R 755 "$plugin_aio_url_dir"
+    
+    sudo chown -R www-data:www-data "$backup_dir"
+    sudo chmod -R 755 "$backup_dir"
     # Move backup file from old site
     echo "Moving backup file..."
     mv /var/www/$old_domain/htdocs/wp-content/ai1wm-backups/*.wpress "$domain_path/wp-content/ai1wm-backups/" 2>/dev/null
@@ -105,7 +129,9 @@ restore_domain() {
     # Clean up
     rm -rf "$domain_path/wp-content/ai1wm-backups"/*.wpress
     wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration-url-extension
+    wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
     wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration
+    wp_cli "$domain_path" plugin delete all-in-one-wp-migration
 }
 
 config_redirect() {
