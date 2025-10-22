@@ -36,6 +36,7 @@ fi
 
 # Helper function to run wp with root permission
 wp_cli() {
+    echo "➡️  Command: wp --allow-root --path=$1 ${@:2}"
     wp --allow-root --path="$1" "${@:2}"
 }
 
@@ -108,7 +109,7 @@ restore_domain() {
     echo "Using backup file: ";
     echo $(basename "$latest_backup");
     return 0
-    
+
     wp_cli "$domain_path" ai1wm restore "$(basename "$latest_backup")"
     echo "✅ Restore completed for $domain"
 
