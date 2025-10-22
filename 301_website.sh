@@ -95,11 +95,12 @@ restore_domain() {
     wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
     wp_cli "$domain_path" plugin install "$extension_zip" --activate
 
-    setup_owner "$domain_path"
 
     # Move backup file from old site
     echo "Moving backup file..."
     mv /var/www/$old_domain/htdocs/wp-content/ai1wm-backups/*.wpress "$domain_path/wp-content/ai1wm-backups/" 2>/dev/null
+
+    setup_owner "$domain_path"
 
     latest_backup=$(ls -1t "$domain_path/wp-content/ai1wm-backups"/*.wpress 2>/dev/null | head -n1)
     if [ -z "$latest_backup" ]; then
@@ -109,13 +110,14 @@ restore_domain() {
     echo "Using backup file: ";
     echo $(basename "$latest_backup");
     backup_dir="$domain_path/wp-content/ai1wm-backups"
-    latest_backup="$(ls -1t "$backup_dir"/*.wpress | head -n1)"
+    latest_backup_dir="$(ls -1t "$backup_dir"/*.wpress | head -n1)"
     
     # Restore backup command
     echo "Restoring backup..."
-    # wp ai1wm restore "$(basename "$latest_backup")" --allow-root
+    wp ai1wm restore "$(basename "$latest_backup")" --allow-root
+    # wp_cli "$domain_path" ai1wm restore "$(basename "$latest_backup_dir")"
     echo "✅ Restore completed for $domain"
-    return 0
+    # return 0
     # Clean up
     rm -rf "$domain_path/wp-content/ai1wm-backups"/*.wpress
     wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration-url-extension
@@ -131,14 +133,18 @@ setup_owner() {
     local plugin_aio_url_dir="$domain_path/wp-content/plugins/all-in-one-wp-migration-url-extension"
 
     sudo chown -R www-data:www-data "$plugin_aio_dir"
+    sudo chown -R www-data:www-data "$plugin_aio_dir/*"
     sudo find "$plugin_aio_dir" -type d -exec chmod 755 {} \;
     sudo find "$plugin_aio_dir" -type f -exec chmod 644 {} \;
 
     sudo chown -R www-data:www-data "$plugin_aio_url_dir"
+    sudo chown -R www-data:www-data "$plugin_aio_url_dir/*"
+
     sudo find "$plugin_aio_url_dir" -type d -exec chmod 755 {} \;
     sudo find "$plugin_aio_url_dir" -type f -exec chmod 644 {} \;
 
     sudo chown -R www-data:www-data "$backup_dir"
+    sudo chown -R www-data:www-data "$backup_dir/*"
     sudo find "$backup_dir" -type d -exec chmod 755 {} \;
     sudo find "$backup_dir" -type f -exec chmod 644 {} \;
 
