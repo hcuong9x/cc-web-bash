@@ -69,9 +69,9 @@ else
     fi
     
     echo "Found local backup file: $(basename "$LOCAL_WPRESS")"
-    cp "$LOCAL_WPRESS" "$BACKUP_FILE"
+    cp "$LOCAL_WPRESS" "$TEMP_DIR/$BACKUP_FILE"
     
-    if [ ! -f "$BACKUP_FILE" ]; then
+    if [ ! -f "$TEMP_DIR/$BACKUP_FILE" ]; then
         echo "Error: Failed to copy backup file"
         exit 1
     fi
@@ -154,7 +154,7 @@ sudo chmod -R 755 "$EXT_DIR"
 echo "[6/7] Copying backup file..."
 UPLOAD_DIR="$WP_PATH/wp-content/ai1wm-backups"
 sudo mkdir -p "$UPLOAD_DIR"
-sudo cp "$BACKUP_FILE" "$UPLOAD_DIR/"
+sudo cp "$TEMP_DIR/$BACKUP_FILE" "$UPLOAD_DIR/"
 sudo chown -R www-data:www-data "$UPLOAD_DIR"
 sudo chmod 755 "$UPLOAD_DIR"
 
