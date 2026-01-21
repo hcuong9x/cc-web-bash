@@ -89,7 +89,7 @@ if [ ! -d "$WP_PATH" ]; then
     exit 1
 fi
 
-if [ ! -f "$WP_PATH/wp-config.php" ]; then
+if [ ! -f "/var/www/$DOMAIN/wp-config.php" ]; then
     echo "Error: wp-config.php not found. Site may not be properly configured."
     exit 1
 fi
@@ -103,11 +103,12 @@ OWNER_GROUP=$(stat -c "%U:%G" "$WP_PATH")
 
 # Delete all old plugins first
 echo "Removing old plugins..."
-sudo -u www-data wp plugin delete --all --allow-root --path="$WP_PATH" 2>/dev/null || true
+cd "$WP_PATH" || exit 1
+wp plugin delete --all --allow-root 2>/dev/null || true
 
 # Install All-in-One WP Migration
 echo "Installing All-in-One WP Migration plugin..."
-sudo -u www-data wp plugin install all-in-one-wp-migration --activate --allow-root --path="$WP_PATH"
+wp plugin install all-in-one-wp-migration --activate --allow-root
 
 if [ $? -ne 0 ]; then
     echo "Error: Failed to install All-in-One WP Migration plugin"
@@ -128,16 +129,17 @@ if [ ! -f "$EXTENSION_ZIP" ]; then
 fi
 
 # Deactivate and delete if already exists
-if sudo -u www-data wp plugin is-active all-in-one-wp-migration-url-extension --allow-root --path="$WP_PATH" 2>/dev/null; then
+cd "$WP_PATH" || exit 1
+if wp plugin is-active all-in-one-wp-migration-url-extension --allow-root 2>/dev/null; then
     echo "Deactivating existing URL extension..."
-    sudo -u www-data wp plugin deactivate all-in-one-wp-migration-url-extension --allow-root --path="$WP_PATH"
+    wp plugin deactivate all-in-one-wp-migration-url-extension --allow-root
 fi
 
-sudo -u www-data wp plugin delete all-in-one-wp-migration-url-extension --allow-root --path="$WP_PATH" 2>/dev/null || true
+wp plugin delete all-in-one-wp-migration-url-extension --allow-root 2>/dev/null || true
 
 # Install from zip file
 echo "Installing URL extension from file..."
-sudo -u www-data wp plugin install "$EXTENSION_ZIP" --activate --allow-root --path="$WP_PATH"
+wp plugin install "$EXTENSION_ZIP" --activate --allow-root
 
 if [ $? -ne 0 ]; then
     echo "Error: Failed to install URL Extension"
@@ -175,7 +177,7 @@ echo "Starting restore process..."
 
 # Restore using WP-CLI
 cd "$WP_PATH" || exit 1
-sudo -u www-data wp ai1wm restore "$LATEST_BACKUP" --allow-root --path="$WP_PATH"
+wp ai1wm restore "$LATEST_BACKUP" --allow-root
 
 if [ $? -ne 0 ]; then
     echo "Error: Failed to restore backup"
