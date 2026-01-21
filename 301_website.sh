@@ -1,181 +1,214 @@
 #!/bin/bash
 
-# ============================================================
-# Clone a WordPress site using All-in-One WP Migration
-# For Webinoly-managed sites
-# Usage: ./clone-site.sh olddomain.com newdomain.com
-# ============================================================
-
-if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 old_domain new_domain"
+# Check if the correct number of parameters are passed
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    echo "Usage: $0 old_domain new_domain [slug]"
     exit 1
 fi
 
+# Assign parameters to variables
 old_domain=$1
 new_domain=$2
+slug=${3:-htdocs}  # Default to 'htdocs' if not provided
 
-# Webinoly path convention
-domain_old_path="/var/www/$old_domain/htdocs"
-domain_new_path="/var/www/$new_domain/htdocs"
+# Define the old domain path
+domain_old_path="/var/www/$old_domain/$slug"
+# Define the new domain path
+domain_new_path="/var/www/$new_domain/$slug"
 
-# Local plugin zip paths
 script_dir="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 extension_zip="$script_dir/all-in-one-wp-migration-url-extension.zip"
-simple_redirect_zip="$script_dir/simple-website-redirect.zip"
+simple_website_redirect_plugin_zip="$script_dir/simple-website-redirect.zip" 
+echo "$extension_zip"
 
-# Ensure paths exist
-if [ ! -d "$domain_old_path" ]; then
-    echo "❌ Error: Old domain path not found: $domain_old_path"
-    exit 1
-fi
-
-if [ ! -d "$domain_new_path" ]; then
-    echo "❌ Error: New domain path not found: $domain_new_path"
-    exit 1
-fi
-
-# Helper function to run wp with root permission
-wp_cli() {
-    echo "➡️  Command: wp --allow-root --path=$1 ${@:2}"
-    wp --allow-root --path="$1" "${@:2}"
-}
-
+# Define the backup_domain function
 backup_domain() {
     local domain_path="$1"
-    local domain="$2"
-    local backup_dir="$domain_path/wp-content/ai1wm-backups"
+    local domain=$(basename "$(dirname "$domain_path")") # Extract domain name
+    local owner_group=$(stat -c "%U:%G" "$domain_path")
+    
+    cd "$domain_path" || {
+        echo "Directory not found: $domain_path"
+        return
+    }
+    echo "$domain_path"
+    echo "$domain"
+    echo "$owner_group"
 
-    echo "🧩 Preparing backup for $domain ..."
+    echo "Start for $domain"
 
-    cd "$domain_path" || return 1
-
-    # Ensure plugin installed
-    if ! wp_cli "$domain_path" plugin is-active all-in-one-wp-migration; then
-        echo "Installing and activating all-in-one-wp-migration..."
-        wp_cli "$domain_path" plugin install all-in-one-wp-migration --activate
+    if ! wp --allow-root plugin is-active all-in-one-wp-migration; then
+        # Check if the plugin is installed
+        if ! wp --allow-root plugin is-installed all-in-one-wp-migration; then
+            # Install and activate the plugin
+            echo "Install and activate all-in-one-wp-migration"
+            wp --allow-root plugin install all-in-one-wp-migration --activate
+        else
+            # Activate the plugin if it's installed but not active
+            echo "Activate all-in-one-wp-migration"
+            wp --allow-root plugin update all-in-one-wp-migration
+            wp --allow-root plugin activate all-in-one-wp-migration
+        fi
+        sudo chown -R "$owner_group" /var/www/"$domain"/"$slug"/wp-content/plugins/all-in-one-wp-migration/
+        sudo chmod -R 755 /var/www/"$domain"/"$slug"/wp-content/plugins/all-in-one-wp-migration/
+    else
+        wp --allow-root plugin update all-in-one-wp-migration
+        echo "all-in-one-wp-migration is already active"
     fi
 
-    # Install / activate extension
-    wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
-    wp_cli "$domain_path" plugin install "$extension_zip" --activate
-
-    # mkdir -p "$backup_dir"
-    # Remove old backups
-    rm -rf "$backup_dir"/*.wpress
-
-    echo "📦 Creating backup..."
-    wp_cli "$domain_path" ai1wm backup --exclude-cache
-
-    latest_backup=$(ls -1t "$backup_dir"/*.wpress 2>/dev/null | head -n1)
-    if [ -z "$latest_backup" ]; then
-        echo "❌ Backup failed for $domain"
-        exit 1
+    local ext_dir="/var/www/$domain/$slug/wp-content/plugins/all-in-one-wp-migration-url-extension/"
+    if wp --allow-root plugin is-active all-in-one-wp-migration-url-extension; then
+        # Check if the unlimited extension is installed
+        echo "all-in-one-wp-migration-url-extension is already active"
+        wp --allow-root plugin deactivate all-in-one-wp-migration-url-extension
     fi
+    wp --allow-root plugin delete all-in-one-wp-migration-url-extension
+    wp --allow-root plugin install "$extension_zip" --activate
+    sudo chown -R "$owner_group" "$ext_dir"
+    sudo chmod -R 755 "$ext_dir"
 
-    setup_owner "$domain_path"
+    echo "Start backup for $domain"
+    backup_dir="/var/www/$domain/$slug/wp-content/ai1wm-backups"
+    # remove older backup
+    sudo rm -rf "$backup_dir"/*.wpress
 
-    echo "✅ Backup created: $latest_backup"
+    wp ai1wm backup --sites --allow-root --exclude-cache
     echo "Backup Size: $(du -sh "$backup_dir"/*.wpress)"
+    
+    # Get the latest backup filename
+    cd "$backup_dir" || exit
+    latest_backup="$(ls -1t | head -n1)"
+
+    if [ $? -ne 0 ]; then
+        echo "Failed to create backup for $domain"
+    fi
+
+    # Uninstall the All-in-One WP Migration plugins
+    # wp --allow-root plugin deactivate all-in-one-wp-migration-url-extension
+    # wp --allow-root plugin delete all-in-one-wp-migration-url-extension
+
+    # wp --allow-root plugin deactivate all-in-one-wp-migration
+    # wp --allow-root plugin delete all-in-one-wp-migration
 }
 
+# Define the restore_domain function
 restore_domain() {
     local domain_path="$1"
-    local domain="$2"
+    local domain=$(basename "$(dirname "$domain_path")") # Extract domain name
+    local owner_group=$(stat -c "%U:%G" "$domain_path")
+    echo "Restoring $domain"
 
-    echo "🔁 Restoring backup to $domain ..."
+    cd "$domain_path" || {
+        echo "Directory not found: $domain_path"
+        return
+    }
 
-    cd "$domain_path" || return 1
+    echo "$domain_path"
+    echo "$domain"
+    echo "$owner_group"
 
-    # Install plugin
-    if ! wp_cli "$domain_path" plugin is-active all-in-one-wp-migration; then
-        wp_cli "$domain_path" plugin install all-in-one-wp-migration --activate
-
+    if ! wp --allow-root plugin is-active all-in-one-wp-migration; then
+        # Check if the plugin is installed
+        if ! wp --allow-root plugin is-installed all-in-one-wp-migration; then
+            # Install and activate the plugin
+            echo "Install and activate all-in-one-wp-migration"
+            wp --allow-root plugin install all-in-one-wp-migration --activate
+        else
+            # Activate the plugin if it's installed but not active
+            echo "Activate all-in-one-wp-migration"
+            wp --allow-root plugin update all-in-one-wp-migration
+            wp --allow-root plugin activate all-in-one-wp-migration
+        fi
+        sudo chown -R "$owner_group" /var/www/"$domain"/"$slug"/wp-content/plugins/all-in-one-wp-migration/
+        sudo chmod -R 755 /var/www/"$domain"/"$slug"/wp-content/plugins/all-in-one-wp-migration/
+    else
+        wp --allow-root plugin update all-in-one-wp-migration
+        echo "all-in-one-wp-migration is already active"
     fi
 
-    wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
-    wp_cli "$domain_path" plugin install "$extension_zip" --activate
-
-
-    # Move backup file from old site
-    echo "Moving backup file..."
-    mv /var/www/$old_domain/htdocs/wp-content/ai1wm-backups/*.wpress "$domain_path/wp-content/ai1wm-backups/" 2>/dev/null
-
-    setup_owner "$domain_path"
-
-    latest_backup=$(ls -1t "$domain_path/wp-content/ai1wm-backups"/*.wpress 2>/dev/null | head -n1)
-    if [ -z "$latest_backup" ]; then
-        echo "❌ No backup found for restore."
-        exit 1
+    local ext_dir="/var/www/$domain/$slug/wp-content/plugins/all-in-one-wp-migration-url-extension/"
+    if wp --allow-root plugin is-active all-in-one-wp-migration-url-extension; then
+        # Check if the unlimited extension is installed
+        echo "all-in-one-wp-migration-url-extension is already active"
+        wp --allow-root plugin deactivate all-in-one-wp-migration-url-extension
     fi
-    echo "Using backup file: ";
-    echo $(basename "$latest_backup");
-    backup_dir="$domain_path/wp-content/ai1wm-backups"
-    latest_backup_dir="$(ls -1t "$backup_dir"/*.wpress | head -n1)"
+    wp --allow-root plugin delete all-in-one-wp-migration-url-extension
+    wp --allow-root plugin install "$extension_zip" --activate
+    sudo chown -R "$owner_group" "$ext_dir"
+    sudo chmod -R 755 "$ext_dir"
+
+    echo "move backup file"
+    mv "$domain_old_path/wp-content/ai1wm-backups/"*.wpress "$domain_new_path/wp-content/ai1wm-backups/"
     
-    # Restore backup command
-    echo "Restoring backup..."
-    # wp ai1wm restore "$(basename "$latest_backup")" --allow-root
-    # wp_cli "$domain_path" ai1wm restore "$(basename "$latest_backup_dir")"
-    echo "✅ Restore completed for $domain"
-    return 0
-    # Clean up
-    rm -rf "$domain_path/wp-content/ai1wm-backups"/*.wpress
-    wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration-url-extension
-    wp_cli "$domain_path" plugin delete all-in-one-wp-migration-url-extension
-    wp_cli "$domain_path" plugin deactivate all-in-one-wp-migration
-    wp_cli "$domain_path" plugin delete all-in-one-wp-migration
+    local ai1wm_dir="/var/www/$domain/$slug/wp-content/ai1wm-backups"
+    sudo chown -R "$owner_group" "$ai1wm_dir"
+    sudo chmod -R 755 "$ai1wm_dir"
+    # Perform the restore
+    backup_dir="/var/www/$domain/$slug/wp-content/ai1wm-backups"
+    latest_backup="$(ls -1t "$backup_dir"/*.wpress | head -n1)"
+    
+    echo "file backup $latest_backup"
+
+    if [ -z "$latest_backup" ]; then
+        echo "No backup file found to restore for $domain"
+        return
+    fi
+    latest_backup_name=$(basename "$latest_backup")
+    wp ai1wm restore "$latest_backup_name" --allow-root
+    echo "Restore completed for $domain"
+
+    # remove older backup
+    sudo rm -rf "$backup_dir"/*.wpress
+
+    # Uninstall the All-in-One WP Migration plugins after restore
+    wp --allow-root plugin deactivate all-in-one-wp-migration-url-extension
+    wp --allow-root plugin delete all-in-one-wp-migration-url-extension
+
+    wp --allow-root plugin deactivate all-in-one-wp-migration
+    wp --allow-root plugin delete all-in-one-wp-migration
+
+    echo "Update owner $owner_group $domain_new_path"
+    sudo chown -R $owner_group $domain_new_path
 }
 
-setup_owner() {
-    local domain_path="$1"
-    local backup_dir="$domain_path/wp-content/ai1wm-backups"
-    local plugin_aio_dir="$domain_path/wp-content/plugins/all-in-one-wp-migration"
-    local plugin_aio_url_dir="$domain_path/wp-content/plugins/all-in-one-wp-migration-url-extension"
-
-    sudo chown -R www-data:www-data "$plugin_aio_dir"
-    sudo chown -R www-data:www-data "$plugin_aio_dir/*"
-    sudo find "$plugin_aio_dir" -type d -exec chmod 755 {} \;
-    sudo find "$plugin_aio_dir" -type f -exec chmod 644 {} \;
-
-    sudo chown -R www-data:www-data "$plugin_aio_url_dir"
-    sudo chown -R www-data:www-data "$plugin_aio_url_dir/*"
-
-    sudo find "$plugin_aio_url_dir" -type d -exec chmod 755 {} \;
-    sudo find "$plugin_aio_url_dir" -type f -exec chmod 644 {} \;
-
-    sudo chown -R www-data:www-data "$backup_dir"
-    sudo chown -R www-data:www-data "$backup_dir/*"
-    sudo find "$backup_dir" -type d -exec chmod 755 {} \;
-    sudo find "$backup_dir" -type f -exec chmod 644 {} \;
-
-    echo "✅ Ownership and permissions set"
-
-}
 config_redirect() {
-    local domain_path="$1"
-    local domain="$2"
 
-    echo "➡️ Setting redirect from $old_domain → $new_domain"
+    cd "$domain_old_path"
 
-    wp_cli "$domain_path" plugin delete simple-website-redirect
-    wp_cli "$domain_path" plugin install "$simple_redirect_zip" --activate
+    wp --allow-root plugin deactivate all-in-one-wp-migration-url-extension
+    wp --allow-root plugin deactivate all-in-one-wp-migration
 
-    wp_cli "$domain_path" option update simple_website_redirect_url "https://$new_domain"
-    wp_cli "$domain_path" option update simple_website_redirect_type 301
-    wp_cli "$domain_path" option update simple_website_redirect_status 0
+    wp --allow-root plugin delete simple-website-redirect
+    wp --allow-root plugin install "$simple_website_redirect_plugin_zip" --activate
 
-    echo "✅ Redirect configured"
+    local owner_group=$(stat -c "%U:%G" "$domain_old_path")
+    sudo chown -R $owner_group "$domain_old_path/wp-content/plugins/simple-website-redirect"
+
+    # Set the redirection configurations in wp_options table
+    wp --allow-root option update simple_website_redirect_url "https://$new_domain"
+    wp --allow-root option update simple_website_redirect_type 301
+    wp --allow-root option update simple_website_redirect_status 1
+
+    echo "Redirection configured: $old_domain --> $new_domain"
 }
 
-# -------------------------------------------------------------
-# Run process
-# -------------------------------------------------------------
-echo "=============================="
-echo "🌍 Cloning $old_domain → $new_domain"
-echo "=============================="
 
-backup_domain "$domain_old_path" "$old_domain"
-restore_domain "$domain_new_path" "$new_domain"
-config_redirect "$domain_old_path" "$old_domain"
+# Check if the old domain path exists
+if [ -d "$domain_old_path" ]; then
+    echo "Step 1: Found the directory for the old domain at $domain_old_path"
+    # Call the backup_domain function
+    backup_domain "$domain_old_path"
+else
+    echo "Error: Directory $domain_old_path does not exist!"
+    exit 1
+fi
 
-echo "🎉 Clone completed successfully!"
+# Create the new domain directory if it doesn't exist
+if [ -d "$domain_new_path" ]; then
+    echo "Step 2: Found the directory for the new domain at $domain_new_path"
+    restore_domain "$domain_new_path"
+    config_redirect "$domain_old_path" "$domain_new_path"
+else
+    echo "Error: Directory $domain_new_path does not exist!"
+    exit 1
+fi
