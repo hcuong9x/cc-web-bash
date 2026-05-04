@@ -13,6 +13,7 @@ OPCACHE_INI="/etc/php/${PHP_VER}/mods-available/opcache.ini"
 MYSQL_CNF="/etc/mysql/mariadb.conf.d/99-webinoly-4gb.cnf"
 NGINX_CNF="/etc/nginx/nginx.conf"
 NGINX_FASTCGI_TUNING="/etc/nginx/conf.d/99-php-fcgi-timeouts.conf"
+NGINX_FASTCGI_CNF="/etc/nginx/conf.d/fastcgi.conf"
 PHP_FPM_SLOWLOG="/var/log/php${PHP_VER}-fpm-slow.log"
 
 set_ini_value() {
@@ -29,6 +30,17 @@ set_ini_value() {
   fi
 }
 
+ensure_single_nginx_directive() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local key_re
+
+  key_re=$(printf '%s' "$key" | sed -e 's/[][\\/.*^$(){}?+|]/\\&/g')
+  sed -i -E "/^[[:space:]]*${key_re}[[:space:]]+[^;]*;/d" "$file"
+  echo "${key} ${value};" >> "$file"
+}
+
 echo "=== Starting Optimization for 4GB RAM Server ==="
 
 # Backup configs
@@ -39,6 +51,7 @@ cp "$PHP_INI" "${PHP_INI}.bak.$DATE"
 cp "$OPCACHE_INI" "${OPCACHE_INI}.bak.$DATE"
 cp "$NGINX_CNF" "${NGINX_CNF}.bak.$DATE"
 [ -f "$NGINX_FASTCGI_TUNING" ] && cp "$NGINX_FASTCGI_TUNING" "${NGINX_FASTCGI_TUNING}.bak.$DATE"
+[ -f "$NGINX_FASTCGI_CNF" ] && cp "$NGINX_FASTCGI_CNF" "${NGINX_FASTCGI_CNF}.bak.$DATE"
 echo "Backup completed."
 
 # ====================== PHP-FPM ======================
@@ -133,12 +146,20 @@ if ! grep -q "client_max_body_size" "$NGINX_CNF"; then
   sed -i '/http {/a \    client_max_body_size 128M;' "$NGINX_CNF"
 fi
 
-cat > "$NGINX_FASTCGI_TUNING" <<'EOF'
+if [ -f "$NGINX_FASTCGI_CNF" ]; then
+  # Webinoly usually defines fastcgi_* directives here. Ensure single values to avoid duplicate errors.
+  ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_connect_timeout" "60s"
+  ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_send_timeout" "600s"
+  ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_read_timeout" "600s"
+  [ -f "$NGINX_FASTCGI_TUNING" ] && rm -f "$NGINX_FASTCGI_TUNING"
+else
+  cat > "$NGINX_FASTCGI_TUNING" <<'EOF'
 # Bulk edit and long admin requests in WooCommerce can exceed nginx 60s defaults.
 fastcgi_connect_timeout 60s;
 fastcgi_send_timeout 600s;
 fastcgi_read_timeout 600s;
 EOF
+fi
 
 # ====================== System Limits ======================
 echo "== System Limits =="
@@ -171,7 +192,8 @@ net.ipv4.tcp_max_syn_backlog = 8192
 net.core.netdev_max_backlog = 5000
 EOF
 
-sysctl --system >/dev/null
+# Apply only this tuning file to avoid noisy warnings from unrelated sysctl fragments.
+sysctl -p /etc/sysctl.d/99-webinoly-4gb.conf >/dev/null
 
 # ====================== Test & Restart ======================
 echo "== Testing configurations =="
