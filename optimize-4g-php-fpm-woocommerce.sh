@@ -206,6 +206,12 @@ systemctl restart php${PHP_VER}-fpm
 systemctl restart nginx
 systemctl restart mariadb
 
+# ====================== Journal Log Cleanup ======================
+echo "== Cleaning systemd journal logs =="
+if command -v journalctl >/dev/null 2>&1; then
+  journalctl --vacuum-size=300M --vacuum-time=14d || true
+fi
+
 echo "========================================"
 echo "DONE! Optimization for 4GB RAM applied."
 echo "Khuyến nghị: Theo dõi RAM & load trong 24-48h đầu."
