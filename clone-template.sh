@@ -316,7 +316,7 @@ restore_domain() {
 
     echo "[6/6] Restoring WordPress backup..."
     cd "$WP_PATH" || return 1
-    wp ai1wm restore "$BACKUP_FILE" --allow-root
+    printf 'y\n' | wp ai1wm restore "$BACKUP_FILE" --allow-root
 
     if [ $? -ne 0 ]; then
         fail_domain "$DOMAIN" "Failed to restore backup"

@@ -12,10 +12,10 @@ File nay mo ta cac buoc restore ma `clone-template.sh` thuc hien cho moi domain.
 6. Cai va kich hoat plugin `all-in-one-wp-migration`.
 7. Cai va kich hoat extension `all-in-one-wp-migration-url-extension.zip`.
 8. Copy file `.wpress` vao `wp-content/ai1wm-backups`.
-9. Chay restore bang WP-CLI:
+9. Chay restore bang WP-CLI va tu dong xac nhan prompt proceed:
 
 ```bash
-wp ai1wm restore <domain>.wpress --allow-root
+printf 'y\n' | wp ai1wm restore <domain>.wpress --allow-root
 ```
 
 10. Xoa file backup vua copy sau khi restore thanh cong.
