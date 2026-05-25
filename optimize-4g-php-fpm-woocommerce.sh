@@ -41,6 +41,17 @@ ensure_single_nginx_directive() {
   echo "${key} ${value};" >> "$file"
 }
 
+ensure_nginx_http_directive() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local key_re
+
+  key_re=$(printf '%s' "$key" | sed -e 's/[][\\/.*^$(){}?+|]/\\&/g')
+  sed -i -E "/^[[:space:]]*${key_re}[[:space:]]+[^;]*;/d" "$file"
+  sed -i "/^[[:space:]]*http[[:space:]]*{/a \    ${key} ${value};" "$file"
+}
+
 echo "=== Starting Optimization for 4GB RAM Server ==="
 
 # Backup configs
@@ -73,8 +84,8 @@ set_ini_value "$PHP_INI" "memory_limit" "512M"
 set_ini_value "$PHP_INI" "max_execution_time" "600"
 set_ini_value "$PHP_INI" "max_input_time" "600"
 set_ini_value "$PHP_INI" "max_input_vars" "10000"
-set_ini_value "$PHP_INI" "post_max_size" "128M"
-set_ini_value "$PHP_INI" "upload_max_filesize" "128M"
+set_ini_value "$PHP_INI" "post_max_size" "256M"
+set_ini_value "$PHP_INI" "upload_max_filesize" "256M"
 
 # Thêm các thông số tốt
 grep -q "^realpath_cache_size" "$PHP_INI" || echo "realpath_cache_size = 4096K" >> "$PHP_INI"
@@ -100,27 +111,38 @@ opcache.jit_buffer_size=64M
 EOF
 
 # ====================== MariaDB ======================
-echo "== Optimize MariaDB (1.5G Buffer Pool) =="
+echo "== Optimize MariaDB (1.5G Buffer Pool, 150 connections) =="
 cat > "$MYSQL_CNF" <<'EOF'
 [mysqld]
 # InnoDB Main Settings
 innodb_buffer_pool_size         = 1536M
 innodb_buffer_pool_instances    = 4
 innodb_log_file_size            = 512M
-innodb_log_buffer_size          = 16M
+innodb_log_buffer_size          = 32M
 innodb_flush_log_at_trx_commit  = 2
 innodb_flush_method             = O_DIRECT
 innodb_file_per_table           = 1
 
 # Connection & Thread
-max_connections                 = 80
-thread_cache_size               = 60
-table_open_cache                = 2500
+max_connections                 = 150
+thread_cache_size               = 80
+table_open_cache                = 3000
 table_definition_cache          = 2000
+open_files_limit                = 65535
+back_log                        = 150
+max_connect_errors              = 100000
+wait_timeout                    = 60
+interactive_timeout             = 120
 
 # Temporary tables
 tmp_table_size                  = 64M
 max_heap_table_size             = 64M
+
+# Per-connection buffers kept conservative for 150 max connections.
+sort_buffer_size                = 1M
+join_buffer_size                = 1M
+read_buffer_size                = 512K
+read_rnd_buffer_size            = 1M
 
 # Slow Query Log
 slow_query_log                  = 1
@@ -128,7 +150,7 @@ slow_query_log_file             = /var/log/mysql/slow.log
 long_query_time                 = 2
 
 # Other
-max_allowed_packet              = 64M
+max_allowed_packet              = 128M
 innodb_read_io_threads          = 4
 innodb_write_io_threads         = 4
 EOF
@@ -141,16 +163,19 @@ sed -i -E \
   "$NGINX_CNF"
 sed -i '/^[[:space:]]*worker_processes[[:space:]]\+/a worker_rlimit_nofile 65535;' "$NGINX_CNF"
 
-# Thêm một số tối ưu cơ bản (nếu chưa có)
-if ! grep -q "client_max_body_size" "$NGINX_CNF"; then
-  sed -i '/http {/a \    client_max_body_size 128M;' "$NGINX_CNF"
-fi
+# Thêm một số tối ưu cơ bản cho WooCommerce import/bulk edit.
+ensure_nginx_http_directive "$NGINX_CNF" "client_max_body_size" "256M"
+ensure_nginx_http_directive "$NGINX_CNF" "server_names_hash_bucket_size" "512"
+ensure_nginx_http_directive "$NGINX_CNF" "server_names_hash_max_size" "2048"
 
 if [ -f "$NGINX_FASTCGI_CNF" ]; then
   # Webinoly usually defines fastcgi_* directives here. Ensure single values to avoid duplicate errors.
   ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_connect_timeout" "60s"
   ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_send_timeout" "600s"
   ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_read_timeout" "600s"
+  ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_buffers" "8 256k"
+  ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_buffer_size" "256k"
+  ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_busy_buffers_size" "256k"
   [ -f "$NGINX_FASTCGI_TUNING" ] && rm -f "$NGINX_FASTCGI_TUNING"
 else
   cat > "$NGINX_FASTCGI_TUNING" <<'EOF'
@@ -158,6 +183,9 @@ else
 fastcgi_connect_timeout 60s;
 fastcgi_send_timeout 600s;
 fastcgi_read_timeout 600s;
+fastcgi_buffers 8 256k;
+fastcgi_buffer_size 256k;
+fastcgi_busy_buffers_size 256k;
 EOF
 fi
 
@@ -182,6 +210,12 @@ cat > /etc/systemd/system/nginx.service.d/limits.conf <<'EOF'
 LimitNOFILE=65535
 EOF
 
+mkdir -p /etc/systemd/system/mariadb.service.d
+cat > /etc/systemd/system/mariadb.service.d/limits.conf <<'EOF'
+[Service]
+LimitNOFILE=65535
+EOF
+
 # ====================== Sysctl ======================
 echo "== Sysctl Optimization =="
 cat > /etc/sysctl.d/99-webinoly-4gb.conf <<'EOF'
@@ -197,8 +231,19 @@ sysctl -p /etc/sysctl.d/99-webinoly-4gb.conf >/dev/null
 
 # ====================== Test & Restart ======================
 echo "== Testing configurations =="
-php-fpm${PHP_VER} -t && echo "PHP-FPM config: OK"
-nginx -t && echo "Nginx config: OK"
+if php-fpm${PHP_VER} -t; then
+  echo "PHP-FPM config: OK"
+else
+  echo "PHP-FPM config: FAILED"
+  exit 1
+fi
+
+if nginx -t; then
+  echo "Nginx config: OK"
+else
+  echo "Nginx config: FAILED"
+  exit 1
+fi
 
 echo "== Restarting services =="
 systemctl daemon-reload
