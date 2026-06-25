@@ -15,6 +15,7 @@ NGINX_CNF="/etc/nginx/nginx.conf"
 NGINX_FASTCGI_TUNING="/etc/nginx/conf.d/99-php-fcgi-timeouts.conf"
 NGINX_FASTCGI_CNF="/etc/nginx/conf.d/fastcgi.conf"
 PHP_FPM_SLOWLOG="/var/log/php${PHP_VER}-fpm-slow.log"
+SYSCTL_CNF="/etc/sysctl.d/99-webinoly-4gb.conf"
 
 set_ini_value() {
   local file="$1"
@@ -63,15 +64,16 @@ cp "$OPCACHE_INI" "${OPCACHE_INI}.bak.$DATE"
 cp "$NGINX_CNF" "${NGINX_CNF}.bak.$DATE"
 [ -f "$NGINX_FASTCGI_TUNING" ] && cp "$NGINX_FASTCGI_TUNING" "${NGINX_FASTCGI_TUNING}.bak.$DATE"
 [ -f "$NGINX_FASTCGI_CNF" ] && cp "$NGINX_FASTCGI_CNF" "${NGINX_FASTCGI_CNF}.bak.$DATE"
+[ -f "$MYSQL_CNF" ] && cp "$MYSQL_CNF" "${MYSQL_CNF}.bak.$DATE"
 echo "Backup completed."
 
 # ====================== PHP-FPM ======================
 echo "== Optimize PHP-FPM (dynamic) =="
 set_ini_value "$PHP_POOL" "pm" "dynamic"
-set_ini_value "$PHP_POOL" "pm.max_children" "28"
-set_ini_value "$PHP_POOL" "pm.start_servers" "8"
-set_ini_value "$PHP_POOL" "pm.min_spare_servers" "6"
-set_ini_value "$PHP_POOL" "pm.max_spare_servers" "16"
+set_ini_value "$PHP_POOL" "pm.max_children" "18"
+set_ini_value "$PHP_POOL" "pm.start_servers" "5"
+set_ini_value "$PHP_POOL" "pm.min_spare_servers" "4"
+set_ini_value "$PHP_POOL" "pm.max_spare_servers" "10"
 set_ini_value "$PHP_POOL" "pm.max_requests" "400"
 set_ini_value "$PHP_POOL" "request_terminate_timeout" "600"
 set_ini_value "$PHP_POOL" "listen.backlog" "4096"
@@ -104,7 +106,6 @@ opcache.max_accelerated_files=80000
 opcache.revalidate_freq=0
 opcache.validate_timestamps=0
 opcache.save_comments=1
-opcache.fast_shutdown=1
 ; JIT - Tracing (tốt cho PHP 8.4)
 opcache.jit=tracing
 opcache.jit_buffer_size=64M
@@ -116,7 +117,7 @@ cat > "$MYSQL_CNF" <<'EOF'
 [mysqld]
 # InnoDB Main Settings
 innodb_buffer_pool_size         = 1536M
-innodb_buffer_pool_instances    = 4
+innodb_buffer_pool_instances    = 2
 innodb_log_file_size            = 512M
 innodb_log_buffer_size          = 32M
 innodb_flush_log_at_trx_commit  = 2
@@ -151,8 +152,6 @@ long_query_time                 = 2
 
 # Other
 max_allowed_packet              = 128M
-innodb_read_io_threads          = 4
-innodb_write_io_threads         = 4
 EOF
 
 # ====================== Nginx ======================
@@ -175,7 +174,7 @@ if [ -f "$NGINX_FASTCGI_CNF" ]; then
   ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_read_timeout" "600s"
   ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_buffers" "8 256k"
   ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_buffer_size" "256k"
-  ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_busy_buffers_size" "256k"
+  ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_busy_buffers_size" "512k"
   [ -f "$NGINX_FASTCGI_TUNING" ] && rm -f "$NGINX_FASTCGI_TUNING"
 else
   cat > "$NGINX_FASTCGI_TUNING" <<'EOF'
@@ -185,7 +184,7 @@ fastcgi_send_timeout 600s;
 fastcgi_read_timeout 600s;
 fastcgi_buffers 8 256k;
 fastcgi_buffer_size 256k;
-fastcgi_busy_buffers_size 256k;
+fastcgi_busy_buffers_size 512k;
 EOF
 fi
 
@@ -218,7 +217,7 @@ EOF
 
 # ====================== Sysctl ======================
 echo "== Sysctl Optimization =="
-cat > /etc/sysctl.d/99-webinoly-4gb.conf <<'EOF'
+cat > "$SYSCTL_CNF" <<'EOF'
 vm.swappiness = 10
 vm.vfs_cache_pressure = 50
 net.core.somaxconn = 4096
@@ -227,7 +226,7 @@ net.core.netdev_max_backlog = 5000
 EOF
 
 # Apply only this tuning file to avoid noisy warnings from unrelated sysctl fragments.
-sysctl -p /etc/sysctl.d/99-webinoly-4gb.conf >/dev/null
+sysctl -p "$SYSCTL_CNF" >/dev/null
 
 # ====================== Test & Restart ======================
 echo "== Testing configurations =="

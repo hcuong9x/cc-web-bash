@@ -70,10 +70,10 @@ echo "Backup completed."
 # ====================== PHP-FPM ======================
 echo "== Optimize PHP-FPM (dynamic) =="
 set_ini_value "$PHP_POOL" "pm" "dynamic"
-set_ini_value "$PHP_POOL" "pm.max_children" "44"
-set_ini_value "$PHP_POOL" "pm.start_servers" "12"
-set_ini_value "$PHP_POOL" "pm.min_spare_servers" "8"
-set_ini_value "$PHP_POOL" "pm.max_spare_servers" "24"
+set_ini_value "$PHP_POOL" "pm.max_children" "38"
+set_ini_value "$PHP_POOL" "pm.start_servers" "10"
+set_ini_value "$PHP_POOL" "pm.min_spare_servers" "7"
+set_ini_value "$PHP_POOL" "pm.max_spare_servers" "20"
 set_ini_value "$PHP_POOL" "pm.max_requests" "500"
 set_ini_value "$PHP_POOL" "request_terminate_timeout" "600"
 set_ini_value "$PHP_POOL" "listen.backlog" "8192"
@@ -104,18 +104,17 @@ opcache.max_accelerated_files=100000
 opcache.revalidate_freq=0
 opcache.validate_timestamps=0
 opcache.save_comments=1
-opcache.fast_shutdown=1
 ; JIT - Tracing for PHP 8.4
 opcache.jit=tracing
 opcache.jit_buffer_size=128M
 EOF
 
 # ====================== MariaDB ======================
-echo "== Optimize MariaDB (3G Buffer Pool, 220 connections) =="
+echo "== Optimize MariaDB (2.5G Buffer Pool, 220 connections) =="
 cat > "$MYSQL_CNF" <<'EOF'
 [mysqld]
 # InnoDB Main Settings
-innodb_buffer_pool_size         = 3072M
+innodb_buffer_pool_size         = 2560M
 innodb_buffer_pool_instances    = 4
 innodb_log_file_size            = 768M
 innodb_log_buffer_size          = 64M
@@ -151,8 +150,6 @@ long_query_time                 = 2
 
 # Other
 max_allowed_packet              = 256M
-innodb_read_io_threads          = 4
-innodb_write_io_threads         = 4
 EOF
 
 # ====================== Nginx ======================
@@ -175,7 +172,7 @@ if [ -f "$NGINX_FASTCGI_CNF" ]; then
   ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_read_timeout" "600s"
   ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_buffers" "8 256k"
   ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_buffer_size" "256k"
-  ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_busy_buffers_size" "256k"
+  ensure_single_nginx_directive "$NGINX_FASTCGI_CNF" "fastcgi_busy_buffers_size" "512k"
   [ -f "$NGINX_FASTCGI_TUNING" ] && rm -f "$NGINX_FASTCGI_TUNING"
 else
   cat > "$NGINX_FASTCGI_TUNING" <<'EOF'
@@ -185,7 +182,7 @@ fastcgi_send_timeout 600s;
 fastcgi_read_timeout 600s;
 fastcgi_buffers 8 256k;
 fastcgi_buffer_size 256k;
-fastcgi_busy_buffers_size 256k;
+fastcgi_busy_buffers_size 512k;
 EOF
 fi
 
