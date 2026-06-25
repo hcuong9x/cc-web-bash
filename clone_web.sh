@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-rand_alnum() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$1"; }
+rand_alnum() { (set +o pipefail; LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$1"); }
 
 if [[ $# -eq 0 ]]; then
   echo "Usage: $0 <domain1> [domain2 ...]"
