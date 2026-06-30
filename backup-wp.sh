@@ -18,6 +18,7 @@ RCLONE_REMOTE="gdrive"
 EXCLUDE_UPLOADS=0
 DB_ONLY=0
 USE_MAINTENANCE=0
+ALL_SITES=0
 DOMAINS=()
 SUCCESS_DOMAINS=()
 FAILED_DOMAINS=()
@@ -28,6 +29,7 @@ Usage:
   $0 [options] domain1.com [domain2.com ...]
 
 Options:
+  --all                    auto-discover and backup all WordPress sites in /var/www
   --output-dir DIR         local directory to save backups (default: /root/wp-backups)
   --gdrive-folder-id ID    upload to this Google Drive folder ID
   --rclone-remote NAME     rclone remote name (default: gdrive)
@@ -56,11 +58,31 @@ is_domain() {
     [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]]
 }
 
+discover_all_sites() {
+    local dir domain
+    for dir in /var/www/*/; do
+        domain="${dir%/}"
+        domain="${domain##*/}"
+        # skip system/non-domain directories
+        [[ "$domain" =~ ^(html|default|phpmyadmin|_)$ ]] && continue
+        [ -f "/var/www/$domain/wp-config.php" ] || continue
+        [ -d "/var/www/$domain/htdocs" ] || continue
+        DOMAINS+=("$domain")
+    done
+    if [ "${#DOMAINS[@]}" -eq 0 ]; then
+        error_exit "No WordPress sites found in /var/www"
+    fi
+    echo "Auto-discovered ${#DOMAINS[@]} site(s): ${DOMAINS[*]}"
+}
+
 parse_args() {
     if [ "$#" -lt 1 ]; then usage; exit 1; fi
 
     while [ "$#" -gt 0 ]; do
         case "$1" in
+            --all)
+                ALL_SITES=1
+                ;;
             --output-dir)
                 shift; [ -n "${1:-}" ] || error_exit "Missing value for --output-dir"
                 OUTPUT_DIR="$1"
@@ -100,7 +122,12 @@ parse_args() {
         shift
     done
 
-    [ "${#DOMAINS[@]}" -gt 0 ] || error_exit "No domain provided"
+    if [ "$ALL_SITES" -eq 1 ]; then
+        [ "${#DOMAINS[@]}" -eq 0 ] || error_exit "--all cannot be combined with explicit domains"
+        return
+    fi
+
+    [ "${#DOMAINS[@]}" -gt 0 ] || error_exit "No domain provided. Use --all to backup all sites."
 
     local domain
     for domain in "${DOMAINS[@]}"; do
@@ -264,6 +291,10 @@ METAEOF
 parse_args "$@"
 
 command -v wp &>/dev/null || error_exit "WP-CLI (wp) is not installed"
+
+if [ "$ALL_SITES" -eq 1 ]; then
+    discover_all_sites
+fi
 
 if [ -n "$GDRIVE_FOLDER_ID" ]; then
     ensure_rclone
