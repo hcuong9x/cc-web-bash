@@ -16,6 +16,7 @@ OUTPUT_DIR="/root/wp-backups"
 GDRIVE_FOLDER_ID=""
 RCLONE_REMOTE="gdrive"
 EXCLUDE_UPLOADS=0
+DB_ONLY=0
 USE_MAINTENANCE=0
 DOMAINS=()
 SUCCESS_DOMAINS=()
@@ -31,11 +32,13 @@ Options:
   --gdrive-folder-id ID    upload to this Google Drive folder ID
   --rclone-remote NAME     rclone remote name (default: gdrive)
   --exclude-uploads        exclude wp-content/uploads (lighter backup, loses media)
+  --db-only                backup database only (no files) — fastest, smallest
   --maintenance            enable maintenance mode during backup
   -h, --help               show help
 
 Archive format:
-  Each domain produces: <domain>-YYYYMMDD-HHMMSS.tgz
+  Each domain produces: <domain>-YYYYMMDD-HHMMSS-<type>.tgz
+  Types: full (default), noup (--exclude-uploads), db (--db-only)
     ├── files.tar.gz   WordPress docroot (excluding cache, ai1wm-backups)
     ├── db.sql         Full database dump
     └── meta.env       Source domain, URLs, table prefix, timestamp
@@ -72,6 +75,9 @@ parse_args() {
                 ;;
             --exclude-uploads)
                 EXCLUDE_UPLOADS=1
+                ;;
+            --db-only)
+                DB_ONLY=1
                 ;;
             --maintenance)
                 USE_MAINTENANCE=1
@@ -129,7 +135,15 @@ backup_domain() {
     local wp_config="/var/www/$domain/wp-config.php"
     local timestamp
     timestamp="$(date +%Y%m%d-%H%M%S)"
-    local base_name="${domain}-${timestamp}"
+    local backup_type
+    if [ "$DB_ONLY" -eq 1 ]; then
+        backup_type="db"
+    elif [ "$EXCLUDE_UPLOADS" -eq 1 ]; then
+        backup_type="noup"
+    else
+        backup_type="full"
+    fi
+    local base_name="${domain}-${timestamp}-${backup_type}"
     local tmp_dir="/tmp/wp-backup-${domain}-$$"
 
     echo ""
@@ -162,20 +176,24 @@ backup_domain() {
         return 1
     fi
 
-    echo "[3/5] Archiving WordPress files..."
-    local tar_excludes=(
-        "--exclude=./wp-content/cache"
-        "--exclude=./wp-content/ai1wm-backups"
-    )
-    if [ "$EXCLUDE_UPLOADS" -eq 1 ]; then
-        tar_excludes+=("--exclude=./wp-content/uploads")
-        echo "Note: Excluding wp-content/uploads"
-    fi
-    if ! tar -C "$wp_path" "${tar_excludes[@]}" -czf "$tmp_dir/files.tar.gz" .; then
-        echo "Error: File archive failed"
-        [ "$USE_MAINTENANCE" -eq 1 ] && wp --allow-root --path="$wp_path" maintenance-mode deactivate 2>/dev/null || true
-        rm -rf "$tmp_dir"
-        return 1
+    if [ "$DB_ONLY" -eq 1 ]; then
+        echo "[3/5] Skipping file archive (db-only backup)..."
+    else
+        echo "[3/5] Archiving WordPress files..."
+        local tar_excludes=(
+            "--exclude=./wp-content/cache"
+            "--exclude=./wp-content/ai1wm-backups"
+        )
+        if [ "$EXCLUDE_UPLOADS" -eq 1 ]; then
+            tar_excludes+=("--exclude=./wp-content/uploads")
+            echo "Note: Excluding wp-content/uploads"
+        fi
+        if ! tar -C "$wp_path" "${tar_excludes[@]}" -czf "$tmp_dir/files.tar.gz" .; then
+            echo "Error: File archive failed"
+            [ "$USE_MAINTENANCE" -eq 1 ] && wp --allow-root --path="$wp_path" maintenance-mode deactivate 2>/dev/null || true
+            rm -rf "$tmp_dir"
+            return 1
+        fi
     fi
 
     echo "[4/5] Writing backup metadata..."
@@ -203,7 +221,9 @@ METAEOF
     local sha_path="$OUTPUT_DIR/$base_name.sha256"
 
     mkdir -p "$OUTPUT_DIR"
-    if ! tar -C "$tmp_dir" -czf "$archive_path" db.sql files.tar.gz meta.env; then
+    local pack_files=(db.sql meta.env)
+    [ "$DB_ONLY" -eq 0 ] && pack_files=(db.sql files.tar.gz meta.env)
+    if ! tar -C "$tmp_dir" -czf "$archive_path" "${pack_files[@]}"; then
         echo "Error: Final archive packing failed"
         rm -rf "$tmp_dir"
         return 1
@@ -220,11 +240,14 @@ METAEOF
     echo "SHA256: $sha_value"
 
     if [ -n "$GDRIVE_FOLDER_ID" ]; then
-        echo "Uploading to Google Drive (folder: $GDRIVE_FOLDER_ID)..."
-        if rclone copy "$archive_path" "${RCLONE_REMOTE}:" \
+        local ym
+        ym="$(date +%Y-%m)"
+        local gdrive_path="${domain}/${ym}"
+        echo "Uploading to Google Drive (${gdrive_path}/)..."
+        if rclone copy "$archive_path" "${RCLONE_REMOTE}:${gdrive_path}/" \
                 --drive-root-folder-id "$GDRIVE_FOLDER_ID" \
                 --progress; then
-            rclone copy "$sha_path" "${RCLONE_REMOTE}:" \
+            rclone copy "$sha_path" "${RCLONE_REMOTE}:${gdrive_path}/" \
                 --drive-root-folder-id "$GDRIVE_FOLDER_ID" 2>/dev/null || true
             echo "Uploaded: $base_name.tgz"
         else

@@ -177,13 +177,17 @@ restore_domain() {
     fi
 
     local required
-    for required in files.tar.gz db.sql meta.env; do
+    for required in db.sql meta.env; do
         if [ ! -f "$tmp_dir/$required" ]; then
             echo "Error: Invalid backup — missing $required inside archive"
             rm -rf "$tmp_dir"
             return 1
         fi
     done
+
+    local is_db_only=0
+    [ ! -f "$tmp_dir/files.tar.gz" ] && is_db_only=1
+    [ "$is_db_only" -eq 1 ] && echo "Detected db-only backup — file restore will be skipped"
 
     local source_domain source_siteurl source_home
     source_domain="$(read_meta_value "$tmp_dir/meta.env" SOURCE_DOMAIN)"
@@ -204,37 +208,41 @@ restore_domain() {
         wp --allow-root --path="$wp_path" maintenance-mode activate 2>/dev/null || true
     fi
 
-    echo "[3/6] Preparing docroot..."
-    # Save uploads before wiping if requested
-    if [ "$KEEP_UPLOADS" -eq 1 ] && [ -d "$wp_path/wp-content/uploads" ]; then
-        echo "Saving current wp-content/uploads..."
-        cp -rp "$wp_path/wp-content/uploads" "$tmp_dir/uploads_backup"
-    fi
-
-    # Guard against unsafe paths
-    case "$wp_path" in
-        /|/var|/var/www|/home)
-            echo "Error: Refusing to wipe unsafe path: $wp_path"
-            rm -rf "$tmp_dir"
-            return 1
-            ;;
-    esac
-
     local owner_group
     owner_group="$(stat -c "%U:%G" "$wp_path")"
-    find "$wp_path" -mindepth 1 -maxdepth 1 ! -name ".well-known" -exec rm -rf {} +
 
-    echo "[4/6] Extracting WordPress files..."
-    if ! tar -xzf "$tmp_dir/files.tar.gz" -C "$wp_path"; then
-        echo "Error: Failed to extract WordPress files"
-        rm -rf "$tmp_dir"
-        return 1
-    fi
+    if [ "$is_db_only" -eq 1 ]; then
+        echo "[3/6] Skipping docroot wipe (db-only backup)..."
+        echo "[4/6] Skipping file extraction (db-only backup)..."
+    else
+        echo "[3/6] Preparing docroot..."
+        if [ "$KEEP_UPLOADS" -eq 1 ] && [ -d "$wp_path/wp-content/uploads" ]; then
+            echo "Saving current wp-content/uploads..."
+            cp -rp "$wp_path/wp-content/uploads" "$tmp_dir/uploads_backup"
+        fi
 
-    if [ "$KEEP_UPLOADS" -eq 1 ] && [ -d "$tmp_dir/uploads_backup" ]; then
-        echo "Restoring saved uploads..."
-        mkdir -p "$wp_path/wp-content/uploads"
-        cp -rp "$tmp_dir/uploads_backup/." "$wp_path/wp-content/uploads/"
+        case "$wp_path" in
+            /|/var|/var/www|/home)
+                echo "Error: Refusing to wipe unsafe path: $wp_path"
+                rm -rf "$tmp_dir"
+                return 1
+                ;;
+        esac
+
+        find "$wp_path" -mindepth 1 -maxdepth 1 ! -name ".well-known" -exec rm -rf {} +
+
+        echo "[4/6] Extracting WordPress files..."
+        if ! tar -xzf "$tmp_dir/files.tar.gz" -C "$wp_path"; then
+            echo "Error: Failed to extract WordPress files"
+            rm -rf "$tmp_dir"
+            return 1
+        fi
+
+        if [ "$KEEP_UPLOADS" -eq 1 ] && [ -d "$tmp_dir/uploads_backup" ]; then
+            echo "Restoring saved uploads..."
+            mkdir -p "$wp_path/wp-content/uploads"
+            cp -rp "$tmp_dir/uploads_backup/." "$wp_path/wp-content/uploads/"
+        fi
     fi
 
     echo "[5/6] Importing database..."
