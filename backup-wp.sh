@@ -18,6 +18,7 @@ RCLONE_REMOTE="gdrive"
 EXCLUDE_UPLOADS=0
 DB_ONLY=0
 ALL_SITES=0
+VPS_IP=""
 DOMAINS=()
 SUCCESS_DOMAINS=()
 FAILED_DOMAINS=()
@@ -264,9 +265,7 @@ METAEOF
     echo "SHA256: $sha_value"
 
     if [ -n "$GDRIVE_FOLDER_ID" ]; then
-        local ym
-        ym="$(date +%Y-%m)"
-        local gdrive_path="${domain}/${ym}"
+        local gdrive_path="${domain}/${VPS_IP}"
         echo "Uploading to Google Drive (${gdrive_path}/)..."
         if rclone copy "$archive_path" "${RCLONE_REMOTE}:${gdrive_path}/" \
                 --drive-root-folder-id "$GDRIVE_FOLDER_ID" \
@@ -297,6 +296,13 @@ fi
 
 if [ -n "$GDRIVE_FOLDER_ID" ]; then
     ensure_rclone
+    echo "Detecting VPS public IP..."
+    VPS_IP="$(curl -s --max-time 5 ifconfig.me 2>/dev/null \
+        || curl -s --max-time 5 icanhazip.com 2>/dev/null \
+        || hostname -I | awk '{print $1}')"
+    VPS_IP="${VPS_IP//[^0-9.]/}"
+    [ -n "$VPS_IP" ] || error_exit "Could not detect VPS public IP"
+    echo "VPS IP: $VPS_IP"
 fi
 
 mkdir -p "$OUTPUT_DIR"
