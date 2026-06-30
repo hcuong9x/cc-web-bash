@@ -17,7 +17,6 @@ GDRIVE_FOLDER_ID=""
 RCLONE_REMOTE="gdrive"
 EXCLUDE_UPLOADS=0
 DB_ONLY=0
-USE_MAINTENANCE=0
 ALL_SITES=0
 DOMAINS=()
 SUCCESS_DOMAINS=()
@@ -35,8 +34,9 @@ Options:
   --rclone-remote NAME     rclone remote name (default: gdrive)
   --exclude-uploads        exclude wp-content/uploads (lighter backup, loses media)
   --db-only                backup database only (no files) — fastest, smallest
-  --maintenance            enable maintenance mode during backup
   -h, --help               show help
+
+Note: maintenance mode is always enabled during backup to prevent file corruption.
 
 Archive format:
   Each domain produces: <domain>-YYYYMMDD-HHMMSS-<type>.tgz
@@ -100,9 +100,6 @@ parse_args() {
                 ;;
             --db-only)
                 DB_ONLY=1
-                ;;
-            --maintenance)
-                USE_MAINTENANCE=1
                 ;;
             -h|--help)
                 usage; exit 0
@@ -190,15 +187,17 @@ backup_domain() {
 
     mkdir -p "$tmp_dir" || { echo "Error: Failed to create temp directory"; return 1; }
 
-    if [ "$USE_MAINTENANCE" -eq 1 ]; then
-        echo "Activating maintenance mode..."
-        wp --allow-root --path="$wp_path" maintenance-mode activate 2>/dev/null || true
-    fi
+    deactivate_maintenance() {
+        wp --allow-root --path="$wp_path" maintenance-mode deactivate 2>/dev/null || true
+    }
+
+    echo "Activating maintenance mode..."
+    wp --allow-root --path="$wp_path" maintenance-mode activate 2>/dev/null || true
 
     echo "[2/5] Exporting database..."
     if ! wp --allow-root --path="$wp_path" db export "$tmp_dir/db.sql" --add-drop-table --quiet; then
         echo "Error: Database export failed"
-        [ "$USE_MAINTENANCE" -eq 1 ] && wp --allow-root --path="$wp_path" maintenance-mode deactivate 2>/dev/null || true
+        deactivate_maintenance
         rm -rf "$tmp_dir"
         return 1
     fi
@@ -217,7 +216,7 @@ backup_domain() {
         fi
         if ! tar -C "$wp_path" "${tar_excludes[@]}" -czf "$tmp_dir/files.tar.gz" .; then
             echo "Error: File archive failed"
-            [ "$USE_MAINTENANCE" -eq 1 ] && wp --allow-root --path="$wp_path" maintenance-mode deactivate 2>/dev/null || true
+            deactivate_maintenance
             rm -rf "$tmp_dir"
             return 1
         fi
@@ -238,10 +237,8 @@ SOURCE_TABLE_PREFIX=$table_prefix
 BACKUP_CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 METAEOF
 
-    if [ "$USE_MAINTENANCE" -eq 1 ]; then
-        echo "Deactivating maintenance mode..."
-        wp --allow-root --path="$wp_path" maintenance-mode deactivate 2>/dev/null || true
-    fi
+    echo "Deactivating maintenance mode..."
+    deactivate_maintenance
 
     echo "[5/5] Packing archive..."
     local archive_path="$OUTPUT_DIR/$base_name.tgz"
@@ -277,6 +274,8 @@ METAEOF
             rclone copy "$sha_path" "${RCLONE_REMOTE}:${gdrive_path}/" \
                 --drive-root-folder-id "$GDRIVE_FOLDER_ID" 2>/dev/null || true
             echo "Uploaded: $base_name.tgz"
+            echo "Restore command:"
+            echo "  ./restore-wp.sh --gdrive-folder-id $GDRIVE_FOLDER_ID --gdrive-path ${gdrive_path}/$base_name.tgz $domain"
         else
             echo "Warning: Google Drive upload failed for $domain"
             return 1

@@ -15,6 +15,9 @@ set -o pipefail
 
 BACKUP_FILE=""
 GDRIVE_FILE_ID=""
+GDRIVE_FOLDER_ID=""
+GDRIVE_PATH=""
+RCLONE_REMOTE="gdrive"
 SOURCE_DOMAIN_OVERRIDE=""
 USE_MAINTENANCE=0
 KEEP_UPLOADS=0
@@ -27,11 +30,15 @@ usage() {
     cat <<EOF
 Usage:
   $0 --file backup.tgz domain1.com [domain2.com ...]
+  $0 --gdrive-folder-id FOLDER_ID --gdrive-path domain/YYYY-MM/file.tgz domain1.com [...]
   $0 --gdrive-file-id FILE_ID domain1.com [domain2.com ...]
 
 Backup source (one required):
-  --file backup.tgz        path to local .tgz backup archive
-  --gdrive-file-id ID      Google Drive file ID (gdown is auto-installed if missing)
+  --file PATH              path to local .tgz backup archive
+  --gdrive-folder-id ID    Google Drive root folder ID (same as used in backup)
+  --gdrive-path PATH       path within the folder, e.g. example.com/2026-06/file.tgz
+  --rclone-remote NAME     rclone remote name (default: gdrive)
+  --gdrive-file-id ID      Google Drive file ID (legacy, uses gdown)
 
 Options:
   --source-domain DOMAIN   override source domain for URL search-replace
@@ -66,6 +73,18 @@ parse_args() {
                 shift; [ -n "${1:-}" ] || error_exit "Missing value for --file"
                 BACKUP_FILE="$1"
                 ;;
+            --gdrive-folder-id)
+                shift; [ -n "${1:-}" ] || error_exit "Missing value for --gdrive-folder-id"
+                GDRIVE_FOLDER_ID="$1"
+                ;;
+            --gdrive-path)
+                shift; [ -n "${1:-}" ] || error_exit "Missing value for --gdrive-path"
+                GDRIVE_PATH="$1"
+                ;;
+            --rclone-remote)
+                shift; [ -n "${1:-}" ] || error_exit "Missing value for --rclone-remote"
+                RCLONE_REMOTE="$1"
+                ;;
             --gdrive-file-id|-g)
                 shift; [ -n "${1:-}" ] || error_exit "Missing value for --gdrive-file-id"
                 GDRIVE_FILE_ID="$1"
@@ -99,8 +118,20 @@ parse_args() {
     done
 
     [ "${#DOMAINS[@]}" -gt 0 ] || error_exit "No domain provided"
+
+    local rclone_mode=0
+    [ -n "$GDRIVE_FOLDER_ID" ] || [ -n "$GDRIVE_PATH" ] && rclone_mode=1
+
+    if [ "$rclone_mode" -eq 1 ]; then
+        [ -n "$GDRIVE_FOLDER_ID" ] || error_exit "--gdrive-folder-id required with --gdrive-path"
+        [ -n "$GDRIVE_PATH" ] || error_exit "--gdrive-path required with --gdrive-folder-id"
+        [ -z "$BACKUP_FILE" ] && [ -z "$GDRIVE_FILE_ID" ] || \
+            error_exit "--gdrive-folder-id cannot be combined with --file or --gdrive-file-id"
+        return
+    fi
+
     [ -n "$BACKUP_FILE" ] || [ -n "$GDRIVE_FILE_ID" ] || \
-        error_exit "Provide --file or --gdrive-file-id"
+        error_exit "Provide --file, --gdrive-folder-id/--gdrive-path, or --gdrive-file-id"
     [ -z "$BACKUP_FILE" ] || [ -z "$GDRIVE_FILE_ID" ] || \
         error_exit "Use either --file or --gdrive-file-id, not both"
 
@@ -108,6 +139,38 @@ parse_args() {
     for domain in "${DOMAINS[@]}"; do
         is_domain "$domain" || error_exit "Invalid domain: $domain"
     done
+}
+
+ensure_rclone() {
+    command -v rclone &>/dev/null || \
+        error_exit "rclone is not installed. Install: curl https://rclone.org/install.sh | sudo bash"
+    rclone listremotes 2>/dev/null | grep -q "^${RCLONE_REMOTE}:$" || \
+        error_exit "rclone remote '${RCLONE_REMOTE}' not configured. Run: rclone config"
+}
+
+download_from_rclone() {
+    ensure_rclone
+
+    DOWNLOAD_TEMP="/tmp/wp-restore-source-$$"
+    mkdir -p "$DOWNLOAD_TEMP" || error_exit "Failed to create download directory"
+
+    local filename
+    filename="$(basename "$GDRIVE_PATH")"
+    local remote_dir
+    remote_dir="$(dirname "$GDRIVE_PATH")"
+
+    echo "[Setup] Downloading from Google Drive via rclone (${GDRIVE_PATH})..."
+    if ! rclone copy "${RCLONE_REMOTE}:${remote_dir}/${filename}" "$DOWNLOAD_TEMP/" \
+            --drive-root-folder-id "$GDRIVE_FOLDER_ID" \
+            --progress; then
+        error_exit "rclone download failed — check folder ID and path"
+    fi
+
+    [ -f "$DOWNLOAD_TEMP/$filename" ] || \
+        error_exit "Download succeeded but file not found: $filename"
+
+    echo "Download complete: $DOWNLOAD_TEMP/$filename"
+    BACKUP_FILE="$DOWNLOAD_TEMP/$filename"
 }
 
 ensure_gdown() {
@@ -285,10 +348,8 @@ restore_domain() {
 
     wp --allow-root --path="$wp_path" cache flush >/dev/null 2>&1 || true
 
-    if [ "$USE_MAINTENANCE" -eq 1 ]; then
-        echo "Deactivating maintenance mode..."
-        wp --allow-root --path="$wp_path" maintenance-mode deactivate 2>/dev/null || true
-    fi
+    echo "Deactivating maintenance mode..."
+    wp --allow-root --path="$wp_path" maintenance-mode deactivate 2>/dev/null || true
 
     rm -rf "$tmp_dir"
     echo "Restore complete: $target_url"
@@ -301,7 +362,10 @@ parse_args "$@"
 
 command -v wp &>/dev/null || error_exit "WP-CLI (wp) is not installed"
 
-if [ -n "$GDRIVE_FILE_ID" ]; then
+if [ -n "$GDRIVE_FOLDER_ID" ]; then
+    trap cleanup_download EXIT
+    download_from_rclone
+elif [ -n "$GDRIVE_FILE_ID" ]; then
     trap cleanup_download EXIT
     download_from_gdrive
 else
