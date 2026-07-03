@@ -215,7 +215,11 @@ backup_domain() {
             tar_excludes+=("--exclude=./wp-content/uploads")
             echo "Note: Excluding wp-content/uploads"
         fi
-        if ! tar -C "$wp_path" "${tar_excludes[@]}" -czf "$tmp_dir/files.tar.gz" .; then
+        tar -C "$wp_path" "${tar_excludes[@]}" -czf "$tmp_dir/files.tar.gz" .
+        tar_rc=$?
+        if [ "$tar_rc" -eq 1 ]; then
+            echo "Warning: some files changed while archiving (tar exit 1) — archive is still valid, continuing"
+        elif [ "$tar_rc" -ne 0 ]; then
             echo "Error: File archive failed"
             deactivate_maintenance
             rm -rf "$tmp_dir"
