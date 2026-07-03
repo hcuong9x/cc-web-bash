@@ -12,13 +12,18 @@ globs:
 
 ## clone_web.sh
 
-Creates new WordPress sites via Webinoly for one or more domains.
+Creates new WordPress sites via Webinoly for one or more domains, fully provisioned with a random admin password — no need to open the site in a browser to finish setup.
 
 ```bash
 ./clone_web.sh domain1.com domain2.com
 ```
 
-Runs per domain: `site <domain> -wp` → `httpauth <domain> -wp-admin=off` → `site <domain> -ssl=on`.
+Runs per domain:
+1. `site <domain> -wp` — Webinoly creates nginx vhost, PHP-FPM pool, DB, and `wp-config.php`
+2. `wp core install` — installs WordPress non-interactively: `admin_user=admin`, a random 16-char alphanumeric password (`--skip-email`, fixed `ADMIN_EMAIL`)
+3. `httpauth <domain> -wp-admin=off` → `site <domain> -ssl=on`
+
+A failure on one domain does not stop the rest; a summary of `domain | admin / <password>` is printed at the end for every domain that succeeded, plus a list of failed domains (exit code `1` if any failed).
 
 ## delete-plugin-zips.sh
 
