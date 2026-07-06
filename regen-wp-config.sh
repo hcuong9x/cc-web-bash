@@ -19,7 +19,7 @@ WP_CONFIG_SAMPLE="$WP_HTDOCS/wp-config-sample.php"
 [[ -d "$WP_HTDOCS" ]]        || die "Site not found: $WP_HTDOCS"
 [[ -f "$WP_CONFIG_SAMPLE" ]] || die "wp-config-sample.php not found: $WP_CONFIG_SAMPLE"
 
-DB_NAME="${DOMAIN//./_}"
+DB_NAME="${DOMAIN//[.-]/_}"
 DB_USER="$DB_NAME"
 BACKUP=""
 
