@@ -62,9 +62,9 @@ cp "$PHP_POOL" "${PHP_POOL}.bak.$DATE"
 cp "$PHP_INI" "${PHP_INI}.bak.$DATE"
 cp "$OPCACHE_INI" "${OPCACHE_INI}.bak.$DATE"
 cp "$NGINX_CNF" "${NGINX_CNF}.bak.$DATE"
+[ -f "$MYSQL_CNF" ] && cp "$MYSQL_CNF" "${MYSQL_CNF}.bak.$DATE"
 [ -f "$NGINX_FASTCGI_TUNING" ] && cp "$NGINX_FASTCGI_TUNING" "${NGINX_FASTCGI_TUNING}.bak.$DATE"
 [ -f "$NGINX_FASTCGI_CNF" ] && cp "$NGINX_FASTCGI_CNF" "${NGINX_FASTCGI_CNF}.bak.$DATE"
-[ -f "$MYSQL_CNF" ] && cp "$MYSQL_CNF" "${MYSQL_CNF}.bak.$DATE"
 echo "Backup completed."
 
 # ====================== PHP-FPM ======================
@@ -88,11 +88,9 @@ set_ini_value "$PHP_INI" "max_input_time" "600"
 set_ini_value "$PHP_INI" "max_input_vars" "10000"
 set_ini_value "$PHP_INI" "post_max_size" "256M"
 set_ini_value "$PHP_INI" "upload_max_filesize" "256M"
-
-# Thêm các thông số tốt
-grep -q "^realpath_cache_size" "$PHP_INI" || echo "realpath_cache_size = 4096K" >> "$PHP_INI"
-grep -q "^realpath_cache_ttl" "$PHP_INI" || echo "realpath_cache_ttl = 600" >> "$PHP_INI"
-grep -q "^opcache.enable" "$PHP_INI" || echo "opcache.enable = 1" >> "$PHP_INI"
+set_ini_value "$PHP_INI" "realpath_cache_size" "4096K"
+set_ini_value "$PHP_INI" "realpath_cache_ttl" "600"
+set_ini_value "$PHP_INI" "opcache.enable" "1"
 
 # ====================== OPcache ======================
 echo "== Optimize OPcache (PHP 8.4) =="
