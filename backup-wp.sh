@@ -1,6 +1,6 @@
 #!/bin/bash
-# Backup one or more WordPress sites (Webinoly stack) to .tgz archives,
-# optionally uploading to Google Drive via rclone.
+# Backup one or more WordPress sites (Webinoly or Tino stack, auto-detected
+# per domain) to .tgz archives, optionally uploading to Google Drive via rclone.
 #
 # Usage:
 #   ./backup-wp.sh [options] domain1.com [domain2.com ...]
@@ -30,6 +30,7 @@ Usage:
 
 Options:
   --all                    auto-discover and backup all WordPress sites in /var/www
+                           (Webinoly only - Tino sites must be named explicitly)
   --output-dir DIR         local directory to save backups (default: /root/wp-backups)
   --gdrive-folder-id ID    upload to this Google Drive folder ID
   --rclone-remote NAME     rclone remote name (default: gdrive)
@@ -154,10 +155,31 @@ ensure_rclone() {
     fi
 }
 
+detect_wp_stack() {
+    local domain="$1"
+    if [ -f "/var/www/$domain/wp-config.php" ] && [ -d "/var/www/$domain/htdocs" ]; then
+        echo "webinoly"
+    elif [ -f "/home/$domain/public_html/wp-config.php" ]; then
+        echo "tino"
+    else
+        echo "unknown"
+    fi
+}
+
 backup_domain() {
     local domain="$1"
-    local wp_path="/var/www/$domain/htdocs"
-    local wp_config="/var/www/$domain/wp-config.php"
+    local wp_stack wp_path wp_config
+    wp_stack="$(detect_wp_stack "$domain")"
+    case "$wp_stack" in
+        webinoly)
+            wp_path="/var/www/$domain/htdocs"
+            wp_config="/var/www/$domain/wp-config.php"
+            ;;
+        tino)
+            wp_path="/home/$domain/public_html"
+            wp_config="/home/$domain/public_html/wp-config.php"
+            ;;
+    esac
     local timestamp
     timestamp="$(date +%Y%m%d-%H%M%S)"
     local backup_type
@@ -177,14 +199,11 @@ backup_domain() {
     echo "=========================================="
 
     echo "[1/5] Checking prerequisites..."
-    if [ ! -d "$wp_path" ]; then
-        echo "Error: WordPress site not found at $wp_path"
+    if [ "$wp_stack" = "unknown" ]; then
+        echo "Error: WordPress site not found for $domain (checked Webinoly /var/www/$domain/htdocs and Tino /home/$domain/public_html)"
         return 1
     fi
-    if [ ! -f "$wp_config" ]; then
-        echo "Error: wp-config.php not found at $wp_config"
-        return 1
-    fi
+    echo "Detected stack: $wp_stack ($wp_path)"
 
     mkdir -p "$tmp_dir" || { echo "Error: Failed to create temp directory"; return 1; }
 

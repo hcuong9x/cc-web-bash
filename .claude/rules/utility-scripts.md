@@ -58,7 +58,9 @@ Edits `/etc/zabbix/zabbix_agentd.conf` for `Server`, `ServerActive`, and `Hostna
 
 ## backup-wp.sh
 
-Backs up one or more WordPress sites (Webinoly stack) to `.tgz` archives — no plugin required. Each archive contains `files.tar.gz` + `db.sql` + `meta.env`. Optionally uploads to Google Drive via rclone.
+Backs up one or more WordPress sites to `.tgz` archives — no plugin required. Each archive contains `files.tar.gz` + `db.sql` + `meta.env`. Optionally uploads to Google Drive via rclone.
+
+**Stack auto-detected per domain** (`detect_wp_stack`): Webinoly (`/var/www/<domain>/htdocs` + `/var/www/<domain>/wp-config.php`) or Tino (`/home/<domain>/public_html/wp-config.php`). Fails with a clear error if neither matches. `--all` auto-discovery still only scans `/var/www` (Webinoly) — Tino sites must be named explicitly since there's no safe fleet-wide marker for "this `/home/<domain>` entry is a WordPress site" (see `playbooks/monitoring/CLAUDE.md` in the vps repo for why that detection is inherently best-effort).
 
 ```bash
 ./backup-wp.sh example.com                                         # local backup only
