@@ -13,16 +13,31 @@ Profile cho `optimize-8g-php-fpm-woocommerce.sh` toi uu VPS 8GB RAM, 4 vCPU, cha
 | **Tong fixed** | **~3822MB** |
 | **Con lai cho PHP-FPM workers** | **~4370MB** |
 
-`pm.max_children = 38` duoc chon de giu PHP-FPM trong nguong an toan:
-- 38 workers x ~100MB avg = ~3800MB < 4370MB headroom
+`pm.max_children = 25` (giam tu 38, xem "Cap nhat 2026-07-26" ben duoi):
+- 25 workers x ~150MB thuc te = ~3750MB, van gan 4370MB headroom nhung khong con tran ceiling cgroup neu host co gan overload-watchdog hardening
 - Khi WABE spike (200-300MB/worker): du headroom tranh OOM
 - `innodb_buffer_pool_size = 2560M` (khong phai 3072M): voi 10+ site nho, pool lon hon khong tang cache hit ratio nhung lam tat RAM cho PHP-FPM
+
+### Cap nhat 2026-07-26 - ha tu 38 xuong 25
+
+Fleet `HostKey-he39` (8 host, dung dung profile nay) dung `pm.max_children=38` tu luc
+provision. Sau khi `playbooks/watchdog/deploy-overload-watchdog.yml --tags hardening` gan
+them cgroup `MemoryHigh=3G`/`MemoryMax=4G` rieng cho `php-fpm.service` (khong lien quan
+script nay, xem repo `vps`), `he39-hostkey-TR-01` bi overload that: worker RSS thuc do duoc
+~130-155MB/worker (cao hon gia dinh ~100MB ban dau), pool bi day len gan ceiling cgroup 3G
+duoi traffic that -> kernel reclaim/throttle -> load average len 30 tren host 4 vCPU, PHP
+tro nen cham 15-19s/request, watchdog phai tu restart de cuu. Ha `pm.max_children` xuong 25
+tren ca 8 host (`playbooks/tuning/tune-php-fpm-pool.yml`, giu nguyen `pm=dynamic`) -> RAM
+available tang, swap giam ro ret tren tat ca host, khong con host nao cham ceiling ngay sau
+do. **25 van chua phai muc an toan tuyet doi** (25x150MB~=3.75GB van > 3G soft ceiling neu
+ca 25 worker cung bung nang mot luc) - can theo doi tiep log `pm.max_children` cua php-fpm,
+neu con lap lai thi ha tiep ve 18-20.
 
 ## So sanh voi profile 4GB
 
 | Nhom | Thong so | 4GB | 8GB | Ly do tang |
 |---|---:|---:|---:|---|
-| PHP-FPM | `pm.max_children` | `18` | `38` | Hon RAM → hon workers |
+| PHP-FPM | `pm.max_children` | `18` | `25` (xem 07-26) | Hon RAM → hon workers |
 | PHP-FPM | `pm.start_servers` | `5` | `10` | San sang hon khi burst |
 | PHP-FPM | `pm.min_spare_servers` | `4` | `7` | |
 | PHP-FPM | `pm.max_spare_servers` | `10` | `20` | |
@@ -72,7 +87,7 @@ Profile cho `optimize-8g-php-fpm-woocommerce.sh` toi uu VPS 8GB RAM, 4 vCPU, cha
 |---|---|
 | 1 site WooCommerce lon, RAM available lien tuc > 2G | Tang `innodb_buffer_pool_size` len `3072M` |
 | `Max_used_connections` > 180 lien tuc, RAM con du | Tang `max_connections` len 250 |
-| RAM tut manh khi WABE/import | Giam `pm.max_children` ve 32-34 truoc khi dieu chinh MariaDB |
+| RAM tut manh khi WABE/import | Giam `pm.max_children` ve 18-20 truoc khi dieu chinh MariaDB |
 | Nhieu tmp disk tables khi import | Tang `tmp_table_size` len 128M neu RAM available > 1.5G |
 
 ## Theo doi sau khi chay

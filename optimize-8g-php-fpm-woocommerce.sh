@@ -70,7 +70,11 @@ echo "Backup completed."
 # ====================== PHP-FPM ======================
 echo "== Optimize PHP-FPM (dynamic) =="
 set_ini_value "$PHP_POOL" "pm" "dynamic"
-set_ini_value "$PHP_POOL" "pm.max_children" "38"
+# 25, khong phai 38: worker RSS thuc te ~130-155MB (khong phai ~100MB gia dinh
+# ban dau), va host co the da bi gan them cgroup MemoryHigh/MemoryMax rieng
+# cho php-fpm.service (vd tu overload-watchdog --tags hardening) - 38 workers
+# co the vuot ca ngan sach RAM tong lan tran ceiling do. Xem docs/woocommerce-8gb-profile.md.
+set_ini_value "$PHP_POOL" "pm.max_children" "25"
 set_ini_value "$PHP_POOL" "pm.start_servers" "10"
 set_ini_value "$PHP_POOL" "pm.min_spare_servers" "7"
 set_ini_value "$PHP_POOL" "pm.max_spare_servers" "20"
