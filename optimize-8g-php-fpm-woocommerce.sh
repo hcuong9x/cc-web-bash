@@ -108,8 +108,11 @@ opcache.max_accelerated_files=100000
 opcache.revalidate_freq=0
 opcache.validate_timestamps=0
 opcache.save_comments=1
-; JIT - Tracing for PHP 8.4
-opcache.jit=tracing
+; JIT disabled: tracing mode caused repeated PHP-FPM worker SIGSEGV crashes/502s
+; on WooCommerce sites under real traffic (otakucustomized.store, 2026-08-07).
+; WordPress/WooCommerce is I/O-bound, not CPU-bound, so JIT gave negligible benefit
+; for real stability risk.
+opcache.jit=off
 opcache.jit_buffer_size=128M
 EOF
 
