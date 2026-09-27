@@ -75,7 +75,9 @@ Backs up one or more WordPress sites to `.tgz` archives — no plugin required. 
 
 **Google Drive upload:** requires rclone with a remote named `gdrive` (configurable via `--rclone-remote`). Script guides through setup if rclone is missing or the remote is not configured.
 
-Options: `--output-dir DIR`, `--gdrive-folder-id ID`, `--rclone-remote NAME`, `--exclude-uploads`, `--maintenance`.
+**Local cleanup after upload:** once the upload succeeds, the Drive copy's size is compared to the local `.tgz` (`rclone lsf --format s`); only on an exact match are the local `.tgz` + `.sha256` deleted. Upload failure or size mismatch always keeps the local archive. Pass `--keep-local` to keep it regardless. Local-only runs (no `--gdrive-folder-id`) never delete anything.
+
+Options: `--output-dir DIR`, `--gdrive-folder-id ID`, `--rclone-remote NAME`, `--keep-local`, `--exclude-uploads`, `--db-only`.
 
 ## restore-wp.sh
 

@@ -9,6 +9,7 @@
 #   ./backup-wp.sh example.com
 #   ./backup-wp.sh --gdrive-folder-id 1AbC2dEfG3h example.com shop.com
 #   ./backup-wp.sh --exclude-uploads --output-dir /mnt/backup site.com
+#   ./backup-wp.sh --gdrive-folder-id 1AbC2dEfG3h --keep-local example.com
 
 set -o pipefail
 
@@ -17,6 +18,7 @@ GDRIVE_FOLDER_ID=""
 RCLONE_REMOTE="gdrive"
 EXCLUDE_UPLOADS=0
 DB_ONLY=0
+KEEP_LOCAL=0
 ALL_SITES=0
 VPS_IP=""
 DOMAINS=()
@@ -34,6 +36,8 @@ Options:
   --output-dir DIR         local directory to save backups (default: /root/wp-backups)
   --gdrive-folder-id ID    upload to this Google Drive folder ID
   --rclone-remote NAME     rclone remote name (default: gdrive)
+  --keep-local             keep the local archive after a successful Drive upload
+                           (default: delete it once the Drive copy is verified)
   --exclude-uploads        exclude wp-content/uploads (lighter backup, loses media)
   --db-only                backup database only (no files) — fastest, smallest
   -h, --help               show help
@@ -51,6 +55,9 @@ Google Drive upload:
   Requires rclone with a configured remote. One-time setup:
     curl https://rclone.org/install.sh | sudo bash
     rclone config   # create a remote named 'gdrive' pointing to Google Drive
+  After upload, the Drive copy's size is compared to the local archive; only on a
+  match is the local .tgz/.sha256 deleted (unless --keep-local). On mismatch or
+  upload failure the local archive is always kept.
 EOF
 }
 
@@ -102,6 +109,9 @@ parse_args() {
                 ;;
             --db-only)
                 DB_ONLY=1
+                ;;
+            --keep-local)
+                KEEP_LOCAL=1
                 ;;
             -h|--help)
                 usage; exit 0
@@ -296,6 +306,19 @@ METAEOF
             rclone copy "$sha_path" "${RCLONE_REMOTE}:${gdrive_path}/" \
                 --drive-root-folder-id "$GDRIVE_FOLDER_ID" 2>/dev/null || true
             echo "Uploaded: $base_name.tgz"
+            if [ "$KEEP_LOCAL" -eq 0 ]; then
+                local local_size remote_size
+                local_size="$(stat -c %s "$archive_path")"
+                remote_size="$(rclone lsf --format s --files-only \
+                    --drive-root-folder-id "$GDRIVE_FOLDER_ID" \
+                    "${RCLONE_REMOTE}:${gdrive_path}/$base_name.tgz" 2>/dev/null)"
+                if [ -n "$remote_size" ] && [ "$remote_size" = "$local_size" ]; then
+                    rm -f "$archive_path" "$sha_path"
+                    echo "Verified Drive copy ($remote_size bytes) - removed local archive"
+                else
+                    echo "Warning: Drive size (${remote_size:-unknown}) != local ($local_size) - keeping local archive: $archive_path"
+                fi
+            fi
             echo "Restore command:"
             echo "  ./restore-wp.sh --gdrive-folder-id $GDRIVE_FOLDER_ID --gdrive-path ${gdrive_path}/$base_name.tgz $domain"
         else
