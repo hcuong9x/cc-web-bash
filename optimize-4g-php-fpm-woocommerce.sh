@@ -6,6 +6,10 @@
 
 set -e
 
+# Mot so image (vd AlphaVPS) dat UMASK 027 trong /etc/login.defs -> file moi tao ra 0640,
+# mysqld (chay bang user mysql) khong doc duoc drop-in va bo qua im lang.
+umask 022
+
 PHP_VER="8.4"
 PHP_POOL="/etc/php/${PHP_VER}/fpm/pool.d/www.conf"
 PHP_INI="/etc/php/${PHP_VER}/fpm/php.ini"
@@ -151,6 +155,7 @@ long_query_time                 = 2
 # Other
 max_allowed_packet              = 128M
 EOF
+chmod 0644 "$MYSQL_CNF"  # file cu 0640 tu lan chay truoc: cat > giu nguyen mode cu
 
 # ====================== Nginx ======================
 echo "== Optimize Nginx =="
